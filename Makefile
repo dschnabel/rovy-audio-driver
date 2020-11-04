@@ -1,6 +1,6 @@
 CC= gcc
 INCLUDES= 
-CFLAGS= -O0 -g
+CFLAGS= -O2
 LIBS= -lmpg123 -lao
 
 all: audio test
