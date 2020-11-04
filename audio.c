@@ -54,7 +54,7 @@ void _ad_play_prepare(mpg123_handle *mh) {
     mpg123_getformat(mh, &rate, &channels, &encoding);
 }
 
-int ad_play_audio_file(unsigned char *path, float volume) {
+void ad_play_audio_file(const char *path, float volume) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
@@ -69,14 +69,13 @@ int ad_play_audio_file(unsigned char *path, float volume) {
         mpg123_volume(mpg_handle_file, volume);
     }
 
-    int ret = 0;
     size_t done;
     while (1) {
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
         if (c == MPG123_OK || c == MPG123_DONE) {
             ao_play(ao_dev, mpg_buffer, done);
         } else {
-            ret = -1;
+            printf("ad_play_audio_file error %d", c);
             break;
         }
 
@@ -86,10 +85,9 @@ int ad_play_audio_file(unsigned char *path, float volume) {
     }
 
     mpg123_close(mpg_handle_file);
-    return ret;
 }
 
-int ad_play_audio_buffer(unsigned char *buffer, unsigned int size, float volume) {
+void ad_play_audio_buffer(const char *buffer, unsigned int size, float volume) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
@@ -104,14 +102,11 @@ int ad_play_audio_buffer(unsigned char *buffer, unsigned int size, float volume)
         mpg123_volume(mpg_handle_feed, volume);
     }
 
-    int ret = 0;
     size_t done;
     int c = mpg123_read(mpg_handle_feed, mpg_buffer, mpg_buffer_size, &done);
     if (c == MPG123_NEED_MORE) {
         ao_play(ao_dev, mpg_buffer, done);
     } else {
-        ret = -1;
+        printf("ad_play_audio_buffer error %d", c);
     }
-
-    return ret;
 }

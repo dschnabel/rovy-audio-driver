@@ -8,8 +8,8 @@ extern "C"{
 void ad_init();
 void ad_destroy();
 
-int ad_play_audio_file(unsigned char *path, float volume);
-int ad_play_audio_buffer(unsigned char *buffer, unsigned int size, float volume);
+void ad_play_audio_file(const char *path, float volume);
+void ad_play_audio_buffer(const char *buffer, unsigned int size, float volume);
 
 #ifdef __cplusplus
 }
