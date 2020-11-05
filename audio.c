@@ -2,6 +2,7 @@
 
 #include <ao/ao.h>
 #include <mpg123.h>
+#include <pthread.h>
 
 #define BITS 8
 
@@ -10,6 +11,10 @@ static ao_device *ao_dev;
 static mpg123_handle *mpg_handle_feed, *mpg_handle_file;
 static unsigned char *mpg_buffer;
 static size_t mpg_buffer_size;
+
+static pthread_mutex_t lock;
+static int play_id = 0;
+static int stop = 0;
 
 void ad_init() {
     /* ao initializations */
@@ -30,10 +35,15 @@ void ad_init() {
     mpg_handle_feed = mpg123_new(NULL, &err);
     mpg_handle_file = mpg123_new(NULL, &err);
     mpg123_param(mpg_handle_feed, MPG123_FLAGS, MPG123_QUIET, 0);
-    mpg_buffer_size = mpg123_outblock(mpg_handle_file);
+    mpg_buffer_size = 30000; // choosing this value to keep one read/play loop to around 150ms
+                             // which is good for faster stopping of audio
     mpg_buffer = (unsigned char*) malloc(mpg_buffer_size * sizeof(unsigned char));
 
     mpg123_open_feed(mpg_handle_feed);
+
+    if (pthread_mutex_init(&lock, NULL) != 0) {
+        printf("ad_init mutex init failed\n");
+    }
 }
 
 void ad_destroy() {
@@ -46,17 +56,39 @@ void ad_destroy() {
 
     ao_close(ao_dev);
     ao_shutdown();
+
+    pthread_mutex_destroy(&lock);
 }
 
 void _ad_play_prepare(mpg123_handle *mh) {
     int channels, encoding;
     long rate;
     mpg123_getformat(mh, &rate, &channels, &encoding);
+    if (rate != 48000) {
+        printf("_ad_play_prepare bad rate (%ld). Should be 48000.\n", rate);
+    }
 }
 
-void ad_play_audio_file(const char *path, float volume) {
+int ad_wait_ready() {
+    stop = 1;
+    pthread_mutex_lock(&lock);
+    int id = ++play_id;
+    pthread_mutex_unlock(&lock);
+    return id;
+}
+
+void ad_play_audio_file(int id, const char *path, float volume) {
     static int first_time = 1;
     static float prev_volume = 1.0;
+
+    if (id != play_id) return;
+    stop = 1;
+    pthread_mutex_lock(&lock);
+    if (id != play_id) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+    stop = 0;
 
     mpg123_open(mpg_handle_file, path);
 
@@ -70,12 +102,12 @@ void ad_play_audio_file(const char *path, float volume) {
     }
 
     size_t done;
-    while (1) {
+    while (!stop) {
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
         if (c == MPG123_OK || c == MPG123_DONE) {
             ao_play(ao_dev, mpg_buffer, done);
         } else {
-            printf("ad_play_audio_file error %d", c);
+            printf("ad_play_audio_file error %d\n", c);
             break;
         }
 
@@ -85,11 +117,22 @@ void ad_play_audio_file(const char *path, float volume) {
     }
 
     mpg123_close(mpg_handle_file);
+
+    pthread_mutex_unlock(&lock);
 }
 
-void ad_play_audio_buffer(const char *buffer, unsigned int size, float volume) {
+void ad_play_audio_buffer(int id, const char *buffer, unsigned int size, float volume) {
     static int first_time = 1;
     static float prev_volume = 1.0;
+
+    if (id != play_id) return;
+    stop = 1;
+    pthread_mutex_lock(&lock);
+    if (id != play_id) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+    stop = 0;
 
     mpg123_feed(mpg_handle_feed, buffer, size);
 
@@ -103,10 +146,19 @@ void ad_play_audio_buffer(const char *buffer, unsigned int size, float volume) {
     }
 
     size_t done;
-    int c = mpg123_read(mpg_handle_feed, mpg_buffer, mpg_buffer_size, &done);
-    if (c == MPG123_NEED_MORE) {
-        ao_play(ao_dev, mpg_buffer, done);
-    } else {
-        printf("ad_play_audio_buffer error %d", c);
+    while (!stop) {
+        int c = mpg123_read(mpg_handle_feed, mpg_buffer, mpg_buffer_size, &done);
+        if (c == MPG123_OK || c == MPG123_NEED_MORE) {
+            ao_play(ao_dev, mpg_buffer, done);
+        } else {
+            printf("ad_play_audio_buffer error %d\n", c);
+            break;
+        }
+
+        if (c == MPG123_NEED_MORE) {
+            break;
+        }
     }
+
+    pthread_mutex_unlock(&lock);
 }
