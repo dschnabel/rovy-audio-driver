@@ -2,7 +2,6 @@
 
 #include <ao/ao.h>
 #include <mpg123.h>
-#include <pthread.h>
 
 #define BITS 8
 
@@ -69,6 +68,30 @@ void _ad_play_prepare(mpg123_handle *mh) {
     }
 }
 
+void _ad_check_timing(const struct timespec *start, viseme_timing_t *t) {
+    if (t && t->next_timing < t->timing_size) {
+        struct timespec end;
+        clock_gettime(CLOCK_REALTIME, &end);
+        long elapsed = ((end.tv_sec - start->tv_sec) * 1000) + ((end.tv_nsec - start->tv_nsec) / 1000000);
+
+        if (elapsed >= t->timing[t->next_timing]) {
+            pthread_mutex_lock(&t->lock);
+            t->next_timing++;
+            pthread_cond_signal(&t->cond);
+            pthread_mutex_unlock(&t->lock);
+        }
+    }
+}
+
+void _ad_cancel_timing(viseme_timing_t *t) {
+    if (t && t->next_timing < t->timing_size) {
+        pthread_mutex_lock(&t->lock);
+        t->next_timing = t->timing_size+1;
+        pthread_cond_signal(&t->cond);
+        pthread_mutex_unlock(&t->lock);
+    }
+}
+
 int ad_wait_ready() {
     stop = 1;
     pthread_mutex_lock(&lock);
@@ -77,7 +100,7 @@ int ad_wait_ready() {
     return id;
 }
 
-void ad_play_audio_file(int id, const char *path, float volume) {
+void ad_play_audio_file(int id, const char *path, float volume, viseme_timing_t *t) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
@@ -101,8 +124,13 @@ void ad_play_audio_file(int id, const char *path, float volume) {
         mpg123_volume(mpg_handle_file, volume);
     }
 
+    struct timespec start;
+    clock_gettime(CLOCK_REALTIME, &start);
+
     size_t done;
     while (!stop) {
+        _ad_check_timing(&start, t);
+
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
         if (c == MPG123_OK || c == MPG123_DONE) {
             ao_play(ao_dev, mpg_buffer, done);
@@ -117,11 +145,12 @@ void ad_play_audio_file(int id, const char *path, float volume) {
     }
 
     mpg123_close(mpg_handle_file);
+    _ad_cancel_timing(t);
 
     pthread_mutex_unlock(&lock);
 }
 
-void ad_play_audio_buffer(int id, const char *buffer, unsigned int size, float volume) {
+void ad_play_audio_buffer(int id, const char *buffer, unsigned int size, float volume, viseme_timing_t *t) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
