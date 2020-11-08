@@ -82,7 +82,7 @@ void _ad_check_timing(viseme_timing_t *t) {
 
         if (elapsedMS >= t->timing[t->next_timing]) {
             pthread_mutex_lock(&t->lock);
-            t->next_timing++;
+            while (elapsedMS >= t->timing[t->next_timing]) t->next_timing++;
             pthread_cond_signal(&t->cond);
             pthread_mutex_unlock(&t->lock);
         }
