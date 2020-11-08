@@ -4,6 +4,7 @@
 #include <mpg123.h>
 
 #define BITS 8
+#define SAMPLE_RATE 24000
 
 static ao_device *ao_dev;
 
@@ -22,7 +23,7 @@ void ad_init() {
 
     ao_sample_format format;
     format.bits = mpg123_encsize(208) * BITS;
-    format.rate = 48000;
+    format.rate = SAMPLE_RATE;
     format.channels = 2;
     format.byte_format = AO_FMT_NATIVE;
     format.matrix = 0;
@@ -34,8 +35,8 @@ void ad_init() {
     mpg_handle_feed = mpg123_new(NULL, &err);
     mpg_handle_file = mpg123_new(NULL, &err);
     mpg123_param(mpg_handle_feed, MPG123_FLAGS, MPG123_QUIET, 0);
-    mpg_buffer_size = 30000; // choosing this value to keep one read/play loop to around 150ms
-                             // which is good for faster stopping of audio
+    mpg_buffer_size = 10000; // choosing this value to keep one read/play loop to around 100ms
+                             // which is good for faster stopping of audio and more accurate viseme
     mpg_buffer = (unsigned char*) malloc(mpg_buffer_size * sizeof(unsigned char));
 
     mpg123_open_feed(mpg_handle_feed);
@@ -63,18 +64,17 @@ void _ad_play_prepare(mpg123_handle *mh) {
     int channels, encoding;
     long rate;
     mpg123_getformat(mh, &rate, &channels, &encoding);
-    if (rate != 48000) {
-        printf("_ad_play_prepare bad rate (%ld). Should be 48000.\n", rate);
+
+    if (rate != SAMPLE_RATE) {
+        printf("_ad_play_prepare bad rate (%ld). Should be %d.\n", rate, SAMPLE_RATE);
     }
 }
 
-void _ad_check_timing(const struct timespec *start, viseme_timing_t *t) {
+void _ad_check_timing(viseme_timing_t *t) {
     if (t && t->next_timing < t->timing_size) {
-        struct timespec end;
-        clock_gettime(CLOCK_REALTIME, &end);
-        long elapsed = ((end.tv_sec - start->tv_sec) * 1000) + ((end.tv_nsec - start->tv_nsec) / 1000000);
+        int elapsedMS = ((double)mpg123_tell(mpg_handle_file) / (double)SAMPLE_RATE) * 1000;
 
-        if (elapsed >= t->timing[t->next_timing]) {
+        if (elapsedMS >= t->timing[t->next_timing]) {
             pthread_mutex_lock(&t->lock);
             t->next_timing++;
             pthread_cond_signal(&t->cond);
@@ -124,12 +124,9 @@ void ad_play_audio_file(int id, const char *path, float volume, viseme_timing_t 
         mpg123_volume(mpg_handle_file, volume);
     }
 
-    struct timespec start;
-    clock_gettime(CLOCK_REALTIME, &start);
-
     size_t done;
     while (!stop) {
-        _ad_check_timing(&start, t);
+        _ad_check_timing(t);
 
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
         if (c == MPG123_OK || c == MPG123_DONE) {
