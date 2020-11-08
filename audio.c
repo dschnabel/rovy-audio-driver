@@ -4,7 +4,7 @@
 #include <mpg123.h>
 
 #define BITS 8
-#define SAMPLE_RATE 24000
+#define SAMPLE_RATE 48000
 
 static ao_device *ao_dev;
 
@@ -32,10 +32,15 @@ void ad_init() {
     /* mpg123 initializations */
     int err;
     mpg123_init();
+
     mpg_handle_feed = mpg123_new(NULL, &err);
     mpg_handle_file = mpg123_new(NULL, &err);
+
     mpg123_param(mpg_handle_feed, MPG123_FLAGS, MPG123_QUIET, 0);
-    mpg_buffer_size = 10000; // choosing this value to keep one read/play loop to around 100ms
+    mpg123_param(mpg_handle_file, MPG123_FORCE_RATE, SAMPLE_RATE, 0);
+    mpg123_param(mpg_handle_file, MPG123_FLAGS, MPG123_FORCE_STEREO, 0);
+
+    mpg_buffer_size = 20000; // choosing this value to keep one read/play loop to around 100ms
                              // which is good for faster stopping of audio and more accurate viseme
     mpg_buffer = (unsigned char*) malloc(mpg_buffer_size * sizeof(unsigned char));
 
@@ -65,6 +70,7 @@ void _ad_play_prepare(mpg123_handle *mh) {
     long rate;
     mpg123_getformat(mh, &rate, &channels, &encoding);
 
+    //printf("rate: %ld, channels: %d, encoding: %d\n", rate, channels, encoding);
     if (rate != SAMPLE_RATE) {
         printf("_ad_play_prepare bad rate (%ld). Should be %d.\n", rate, SAMPLE_RATE);
     }
@@ -124,8 +130,16 @@ void ad_play_audio_file(int id, const char *path, float volume, viseme_timing_t 
         mpg123_volume(mpg_handle_file, volume);
     }
 
+//    struct timespec start, end;
+//    clock_gettime(CLOCK_REALTIME, &start);
+
     size_t done;
     while (!stop) {
+//        clock_gettime(CLOCK_REALTIME, &end);
+//        long elapsed = ((end.tv_sec - start.tv_sec) * 1000) + ((end.tv_nsec - start.tv_nsec) / 1000000);
+//        printf("%ld\n", elapsed);
+//        start = end;
+
         _ad_check_timing(t);
 
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
