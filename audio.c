@@ -16,6 +16,8 @@ static pthread_mutex_t lock;
 static int play_id = 0;
 static int stop = 0;
 
+void ad_init_rubberband();
+
 void ad_init() {
     /* ao initializations */
     ao_initialize();
@@ -49,6 +51,8 @@ void ad_init() {
     if (pthread_mutex_init(&lock, NULL) != 0) {
         printf("ad_init mutex init failed\n");
     }
+
+    ad_init_rubberband();
 }
 
 void ad_destroy() {
@@ -106,7 +110,7 @@ int ad_wait_ready() {
     return id;
 }
 
-void ad_play_audio_file(int id, const char *path, float volume, viseme_timing_t *t) {
+void ad_play_mp3_file(int id, const char *path, float volume, viseme_timing_t *t) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
@@ -161,7 +165,7 @@ void ad_play_audio_file(int id, const char *path, float volume, viseme_timing_t 
     pthread_mutex_unlock(&lock);
 }
 
-void ad_play_audio_buffer(int id, const char *buffer, unsigned int size, float volume, viseme_timing_t *t) {
+void ad_play_mp3_buffer(int id, const char *buffer, unsigned int size, float volume, viseme_timing_t *t) {
     static int first_time = 1;
     static float prev_volume = 1.0;
 
@@ -201,4 +205,8 @@ void ad_play_audio_buffer(int id, const char *buffer, unsigned int size, float v
     }
 
     pthread_mutex_unlock(&lock);
+}
+
+void ad_play_raw(char *data, size_t count) {
+    ao_play(ao_dev, data, count);
 }
