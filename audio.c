@@ -4,7 +4,6 @@
 #include <mpg123.h>
 
 #define BITS 8
-#define SAMPLE_RATE 48000
 
 static ao_device *ao_dev;
 
@@ -17,6 +16,7 @@ static int play_id = 0;
 static int stop = 0;
 
 void ad_init_rubberband();
+void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t, int *stop);
 
 void ad_init() {
     /* ao initializations */
@@ -80,9 +80,18 @@ void _ad_play_prepare(mpg123_handle *mh) {
     }
 }
 
-void _ad_check_timing(viseme_timing_t *t) {
+void _ad_timing_cancel(viseme_timing_t *t) {
     if (t && t->next_timing < t->timing_size) {
-        int elapsedMS = ((double)mpg123_tell(mpg_handle_file) / (double)SAMPLE_RATE) * 1000;
+        pthread_mutex_lock(&t->lock);
+        t->next_timing = t->timing_size+1;
+        pthread_cond_signal(&t->cond);
+        pthread_mutex_unlock(&t->lock);
+    }
+}
+
+void ad_timing_check(size_t current_sample, viseme_timing_t *t) {
+    if (t && t->next_timing < t->timing_size) {
+        int elapsedMS = ((double)current_sample / (double)SAMPLE_RATE) * 1000;
 
         if (elapsedMS >= t->timing[t->next_timing]) {
             pthread_mutex_lock(&t->lock);
@@ -90,15 +99,6 @@ void _ad_check_timing(viseme_timing_t *t) {
             pthread_cond_signal(&t->cond);
             pthread_mutex_unlock(&t->lock);
         }
-    }
-}
-
-void _ad_cancel_timing(viseme_timing_t *t) {
-    if (t && t->next_timing < t->timing_size) {
-        pthread_mutex_lock(&t->lock);
-        t->next_timing = t->timing_size+1;
-        pthread_cond_signal(&t->cond);
-        pthread_mutex_unlock(&t->lock);
     }
 }
 
@@ -144,7 +144,7 @@ void ad_play_mp3_file(int id, const char *path, float volume, viseme_timing_t *t
 //        printf("%ld\n", elapsed);
 //        start = end;
 
-        _ad_check_timing(t);
+        ad_timing_check(mpg123_tell(mpg_handle_file), t);
 
         int c = mpg123_read(mpg_handle_file, mpg_buffer, mpg_buffer_size, &done);
         if (c == MPG123_OK || c == MPG123_DONE) {
@@ -160,7 +160,7 @@ void ad_play_mp3_file(int id, const char *path, float volume, viseme_timing_t *t
     }
 
     mpg123_close(mpg_handle_file);
-    _ad_cancel_timing(t);
+    _ad_timing_cancel(t);
 
     pthread_mutex_unlock(&lock);
 }
@@ -204,6 +204,25 @@ void ad_play_mp3_buffer(int id, const char *buffer, unsigned int size, float vol
         }
     }
 
+    pthread_mutex_unlock(&lock);
+}
+
+void ad_play_ogg_file(int id, const char *path, float volume, viseme_timing_t *t) {
+    if (id != play_id) return;
+    stop = 1;
+    pthread_mutex_lock(&lock);
+    if (id != play_id) {
+        pthread_mutex_unlock(&lock);
+        return;
+    }
+    stop = 0;
+
+    ad_play_ogg_file_pitched(path, volume, t, &stop);
+
+    if (!stop) {
+
+    }
+    _ad_timing_cancel(t);
     pthread_mutex_unlock(&lock);
 }
 

@@ -7,6 +7,8 @@
 extern "C"{
 #endif
 
+#define SAMPLE_RATE 48000
+
 typedef struct viseme_timing {
     pthread_mutex_t lock;
     pthread_cond_t cond;
@@ -21,7 +23,7 @@ void ad_destroy();
 int ad_wait_ready();
 void ad_play_mp3_file(int id, const char *path, float volume, viseme_timing_t *t);
 void ad_play_mp3_buffer(int id, const char *buffer, unsigned int size, float volume, viseme_timing_t *t);
-void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_timing_t *t);
+void ad_play_ogg_file(int id, const char *path, float volume, viseme_timing_t *t);
 
 #ifdef __cplusplus
 }

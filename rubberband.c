@@ -32,9 +32,12 @@ static SF_VIRTUAL_IO vio;
 
 typedef struct sf_user_data {
     float volume;
+    size_t current_sample;
+    viseme_timing_t *marks;
 } sf_user_data_;
 
 void ad_play_raw(char *data, size_t count);
+void ad_timing_check(size_t current_sample, viseme_timing_t *t);
 
 //************* virtual local functions ************************
 static sf_count_t vfget_filelen (void *user_data) {return 0;}
@@ -48,8 +51,12 @@ static sf_count_t vfwrite (const void *ptr, sf_count_t count, void *user_data) {
     sf_user_data_ *data = (sf_user_data_ *)user_data;
     short *processed = (short *)malloc(sizeof(short)*new_count);
 
+    data->current_sample += count;
+    ad_timing_check(data->current_sample, data->marks);
+
+    const sf_count_t sample_count = count/2;
     int j = 0;
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < sample_count; i++) {
         short sample = buffer[i];
 
         // volume
@@ -160,10 +167,11 @@ void ad_init_rubberband() {
 
     sfinfoOut.channels = 1;
     sfinfoOut.format = SF_FORMAT_RAW | SF_FORMAT_PCM_16;
-    sfinfoOut.samplerate = 48000;
+    sfinfoOut.samplerate = SAMPLE_RATE;
 }
 
-void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_timing_t *t) {
+void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t, int *stop) {
+
     SNDFILE *sndfile;
     SF_INFO sfinfo;
     memset(&sfinfo, 0, sizeof(SF_INFO));
@@ -185,6 +193,8 @@ void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_tim
 
     sf_user_data_ data;
     data.volume = volume;
+    data.current_sample = 0;
+    data.marks = t;
 
     if ((sndfileOut = sf_open_virtual(&vio, SFM_WRITE, &sfinfoOut, &data)) == NULL) {
         printf("sf_open_virtual() error\n");
@@ -210,7 +220,7 @@ void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_tim
 
     sf_seek(sndfile, 0, SEEK_SET);
 
-    while (frame < sfinfo.frames) {
+    while (frame < sfinfo.frames && !*stop) {
         int count = -1;
         if ((count = sf_readf_float(sndfile, fbuf, ibs)) <= 0) break;
 
@@ -242,7 +252,7 @@ void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_tim
 
     size_t countIn = 0, countOut = 0;
 
-    while (frame < sfinfo.frames) {
+    while (frame < sfinfo.frames && !*stop) {
 
         int count = -1;
         if ((count = sf_readf_float(sndfile, fbuf, ibs)) < 0) break;
@@ -293,7 +303,7 @@ void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_tim
 
     int avail;
 
-    while ((avail = rubberband_available(ts)) >= 0) {
+    while ((avail = rubberband_available(ts)) >= 0 && !*stop) {
         if (avail > 0) {
             float **obf = (float **)malloc(sizeof(float*)*channels);
             for (size_t i = 0; i < channels; ++i) {
@@ -319,6 +329,10 @@ void ad_play_ogg_file_pitched(int id, const char *path, float volume, viseme_tim
             usleep(10000);
         }
     }
+
+    for (size_t i = 0; i < channels; ++i) free(ibuf[i]);
+    free(ibuf);
+    free(fbuf);
 
     sf_close(sndfile);
     sf_close(sndfileOut);
