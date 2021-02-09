@@ -1,7 +1,7 @@
 CC= gcc
 INCLUDES= 
 CFLAGS= -O2
-LIBS= -lmpg123 -lao -lsndfile -lrubberband
+LIBS= -lmpg123 -lasound -lsndfile -lrubberband
 
 all: audio test
 

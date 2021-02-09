@@ -32,12 +32,11 @@ static SF_VIRTUAL_IO vio;
 
 typedef struct sf_user_data {
     float volume;
-    size_t current_sample;
-    viseme_timing_t *marks;
 } sf_user_data_;
 
+void ad_play_sync_prep(viseme_timing_t *t);
+void ad_play_sync_cleanup();
 void ad_play_raw(char *data, size_t count);
-void ad_timing_check(size_t current_sample, viseme_timing_t *t);
 
 //************* virtual local functions ************************
 static sf_count_t vfget_filelen (void *user_data) {return 0;}
@@ -50,9 +49,6 @@ static sf_count_t vfwrite (const void *ptr, sf_count_t count, void *user_data) {
     size_t new_count = count * 4;
     sf_user_data_ *data = (sf_user_data_ *)user_data;
     short *processed = (short *)malloc(sizeof(short)*new_count);
-
-    data->current_sample += count;
-    ad_timing_check(data->current_sample, data->marks);
 
     const sf_count_t sample_count = count/2;
     int j = 0;
@@ -193,8 +189,6 @@ void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t
 
     sf_user_data_ data;
     data.volume = volume;
-    data.current_sample = 0;
-    data.marks = t;
 
     if ((sndfileOut = sf_open_virtual(&vio, SFM_WRITE, &sfinfoOut, &data)) == NULL) {
         printf("sf_open_virtual() error\n");
@@ -251,6 +245,7 @@ void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t
     percent = 0;
 
     size_t countIn = 0, countOut = 0;
+    int firstTime = 1;
 
     while (frame < sfinfo.frames && !*stop) {
 
@@ -287,6 +282,10 @@ void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t
                 }
             }
 
+            if (firstTime) {
+                firstTime = 0;
+                ad_play_sync_prep(t);
+            }
             sf_writef_float(sndfileOut, fobf, avail);
             free(fobf);
             for (size_t i = 0; i < channels; ++i) free(obf[i]);
@@ -338,4 +337,5 @@ void ad_play_ogg_file_pitched(const char *path, float volume, viseme_timing_t *t
     sf_close(sndfileOut);
 
     rubberband_delete(ts);
+    ad_play_sync_cleanup();
 }
